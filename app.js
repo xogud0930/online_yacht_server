@@ -25,11 +25,19 @@ const io = socketio(server, {
 });
 
 io.on('connection', (socket) => {
-    console.log('사용자 접속: ', socket.client.id)
+    console.log(`${socket.client.id} connected`)
+
+    socket.on('room-join', (data) => {
+        socket.join()
+    })
 
     socket.on('chat-msg', (msg) => {
         console.log(`[${msg.time}]${msg.name} : ${msg.message}`)
 
         io.emit('chat-upload', msg)
+    })
+
+    socket.on('disconnect', () => {
+        console.log(`${socket.client.id} disconnected`)
     })
 })
