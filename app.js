@@ -27,17 +27,50 @@ const io = socketio(server, {
 io.on('connection', (socket) => {
     console.log(`${socket.client.id} connected`)
 
-    socket.on('room-join', (data) => {
-        socket.join()
+    socket.on('room-join', (msg) => {
+        console.log(`${msg.name} ${msg.room}-join`)
+
+        msg = {
+            type: 'SYSTEM',
+            name: msg.name,
+            message: `${msg.name} 님이 접속하였습니다.`,
+            room: msg.room,
+            id: socket.client.id,
+        }
+        
+        socket.join(msg.room);
+        io.to(msg.room).emit('chat-join', msg)
     })
 
     socket.on('chat-msg', (msg) => {
-        console.log(`[${msg.time}]${msg.name} : ${msg.message}`)
+        console.log(`<${msg.room}>[${msg.time}]${msg.name} : ${msg.message}`)
 
-        io.emit('chat-upload', msg)
+        socket.join(msg.room);
+        io.to(msg.room).emit('chat-upload', msg)
+    })
+
+    socket.on('chat-list', (data) => {
+        socket.join(data.room);
+        io.to(data.room).emit('chat-list', data.list)
+    })
+
+    socket.on('chat-leave', (msg) => {
+        console.log(`${msg.name} ${msg.room}-leave`)
+
+        msg = {
+            type: 'SYSTEM',
+            name: msg.name,
+            message: `${msg.name} 님이 퇴장하였습니다.`,
+            room: msg.room,
+            id: socket.client.id,
+        }
+
+        socket.join(msg.room);
+        io.to(msg.room).emit('chat-upload', msg)
     })
 
     socket.on('disconnect', () => {
         console.log(`${socket.client.id} disconnected`)
+
     })
 })
