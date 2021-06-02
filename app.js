@@ -25,16 +25,19 @@ const io = socketio(server, {
 });
 
 var playerList = [];
-var roomPlayerList = [];
+var roomList = [];
 
-const findItem = (arr, item, type = false) => {
+const findItem = (arr, item, type = false, num) => {
+    console.log('type:', type)
     var isState = arr !== '' &&
         arr.find((list, idx) => {
-            if(type === 'id' & list.id === item.id) {
-                arr.splice(idx, 1)
-                return true;
-            }
-            else if(list.id === item.id) {
+            if(type === 'room') {
+                    console.log('id:',list.id,item.id)
+                    console.log('room:',list.room, num)
+                    if(list.room === item.room && list.id === item.id ) {
+                        return true;
+                    }
+            } else if(list.id === item.id) {
                 if(type === 'on' || type === 'off' ) {
                     arr[idx].room = item.room
                     arr[idx].state = type
@@ -46,11 +49,22 @@ const findItem = (arr, item, type = false) => {
     return !isState;
 }
 
+
+const countItem = (arr, num) => {
+    if(arr) {
+        var count = arr.reduce((acc, cur, i) => {
+            return cur.room === num ? acc + 1 : acc
+        }, 0)
+    }
+
+    return count ? count : 0;
+}
+
 io.on('connection', (socket) => {
     console.log(`${socket.client.id} connected`)
     
     socket.on('lobby-join', (msg) => {
-        console.log(`${msg.name} ${msg.room}-join`)
+        console.log(`${msg.name} ${msg.room}-lobbyjoin`)
 
         msg = {
             type: findItem(playerList, msg) ? 'JOIN' : 'NONE',
@@ -60,32 +74,38 @@ io.on('connection', (socket) => {
             id: socket.client.id,
         }
 
-        socket.join(msg.room);
-        io.to(msg.room).emit('chat-join', msg)
+        socket.join('lobby');
+        io.to('lobby').emit('player-join', msg)
+        io.to('lobby').emit('room-list', roomList)
     })
 
     socket.on('room-join', (msg) => {
-        console.log(`${msg.name} ${msg.room}-join`)
+        console.log(`${msg.name} ${msg.room}-roomjoin`)
 
         msg = {
             type: 'ROOM-JOIN',
             name: msg.name,
-            message: `${msg.name}님이 Room ` + msg.room
+            message: `${msg.name}님이 Room ` + (Number(msg.room) + 1)
             + `에 입장하였습니다.`,
             room: msg.room,
             id: socket.client.id,
         }
+
         if(findItem(playerList, {...msg, id: socket.client.id})) {
-            playerList.push({name: msg.name, room: msg.room, id: socket.client.id, state: 'off'})    
-        // }
-        // if(findItem(roomPlayerList, msg)) {
-        //     findItem(playerList, msg, 'off')
-        //     roomPlayerList.push({name: msg.name, room: msg.room, id: socket.client.id, state: 'on'})    
-        
+            console.log('Msgroom', msg.room)
+            playerList.push({name: msg.name, room: msg.room, id: socket.client.id, state: 'off'})
+
+            if(roomList[msg.room]) {
+                roomList[msg.room].player = roomList[msg.room].player < 8 ? countItem(playerList, msg.room) : 8;
+            }
+
+            socket.join('lobby');
+            io.to('lobby').emit('player-list', playerList)
+            io.to('lobby').emit('room-list', roomList)
             socket.join(msg.room);
-            io.to('lobby').emit('chat-upload', msg)
-            io.to('lobby').emit('chat-list', playerList)
             io.to(msg.room).emit('chat-upload', msg)
+            io.to(msg.room).emit('player-list', playerList)
+            io.to(msg.room).emit('room-list', roomList)
         }
     })
 
@@ -96,13 +116,28 @@ io.on('connection', (socket) => {
         io.to(msg.room).emit('chat-upload', msg)
     })
 
-    socket.on('chat-list', (data) => {
+    socket.on('player-list', (data) => {
         if(findItem(playerList, {...data, id: socket.client.id})) {
             playerList.push({name: data.name, room: data.room, id: socket.client.id, state: 'on'})    
         }
 
         socket.join(data.room);
-        io.to(data.room).emit('chat-list', playerList)
+        io.to(data.room).emit('player-list', playerList)
+    })
+
+    socket.on('room-add', () => {
+        console.log('room-add')
+
+        var roomId = roomList.reduce((arr, cur, idx) => {
+            if(cur.id !== idx) return arr ? arr : idx
+            return arr
+        }, 0)
+        if(!roomId) roomId = roomList.length
+        console.log('roomId',roomId)
+        roomList.splice(roomId,0,{id: roomId, player: 0, state: 'on'})
+        
+        socket.join('lobby');
+        io.to('lobby').emit('room-list', roomList)
     })
 
     socket.on('lobby-leave', (msg) => {
@@ -120,7 +155,7 @@ io.on('connection', (socket) => {
         io.to(msg.room).emit('chat-upload', msg)
 
         if(!findItem(playerList, msg, 'sub')) {
-            io.to(msg.room).emit('chat-list', playerList)
+            io.to(msg.room).emit('player-list', playerList)
         }
     })
 
@@ -136,10 +171,17 @@ io.on('connection', (socket) => {
         // }
 
         findItem(playerList, msg, 'on')
-        findItem(roomPlayerList, msg, 'sub')
+        if(roomList[msg.room]) {
+            var roomId = roomList.reduce((arr, cur, idx) => {
+                if(cur.id === msg.room) return idx
+                return arr
+            }, msg.room)
+
+            roomList[roomId].player = roomList[roomId].player > 1 ? roomList[roomId].player - 1 : roomList.splice(roomId,1);
+        }
 
         socket.join(msg.room);
-        io.to('lobby').emit('chat-list', playerList)
+        io.to('lobby').emit('player-list', playerList)
         // io.to(msg.room).emit('chat-upload', msg)
     })
 
@@ -154,7 +196,7 @@ io.on('connection', (socket) => {
         playerList.find((list, idx) => {
             if(list.id === socket.client.id) {
                 msg = {
-                    type: 'LEAVE',
+                    type: 'LEAVE', 
                     name: list.name,
                     message: `${list.name}님이 퇴장하였습니다.`,
                     room: list.room,
@@ -164,11 +206,11 @@ io.on('connection', (socket) => {
             }
         })
 
-        findItem(playerList, {id : socket.client.id}, 'id')
-        findItem(roomPlayerList, {id : socket.client.id}, 'id')
+
+        findItem(playerList, {id : socket.client.id}, 'sub')
 
         socket.join('lobby');
-        io.to('lobby').emit('chat-list', playerList)
+        io.to('lobby').emit('player-list', playerList)
         io.to('lobby').emit('chat-upload', msg)
         io.to(msg.room).emit('chat-upload', msg)
 
