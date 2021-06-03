@@ -125,29 +125,10 @@ io.on('connection', (socket) => {
         io.to(msg.room).emit('chat-upload', msg)
     })
 
-    socket.on('player-list', async (data) => {
+    socket.on('player-list', (data) => {
         if(findItem(playerList, {...data, id: socket.client.id})) {
             playerList.push({name: data.name, room: data.room, id: socket.client.id, state: 'on'})    
         }
-
-        // try {
-        //     const [result] = await mySql.query('SELECT * FROM `player_list` WHERE `socket_id` = ?', socket.client.id)
-        //     if(result == "") {
-        //         var sql = `INSERT INTO user(name, email, userId, password, passwordCheck)VALUES(?, ?, ?, ?, ?)`;
-        //         var param = [
-        //             user.name, user.email, user.userId, user.password, user.passwordCheck
-        //         ]
-        //         try {
-        //             response.success = true
-        //             const [result] = await mySql.query(sql, param)
-        //         } catch (err) {
-        //             response.success = false
-        //             response.error = err
-        //         }
-        //     }
-        // } catch (err) {
-        //     console.log(err)
-        // }
 
         socket.join(data.room);
         io.to(data.room).emit('player-list', playerList)
