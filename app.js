@@ -15,7 +15,7 @@ const server = require('http').createServer(app).listen(port, () => {
 const mySql = require('./src/dbConfig')
 
 try {
-    const data = mySql.query(`SELECT * FROM test`)
+    const data = mySql.query('DELETE FROM player_list')
     console.log('MySql connected...');
 } catch (err) {
     throw err
@@ -72,49 +72,103 @@ const countItem = (arr, num) => {
 io.on('connection', (socket) => {
     console.log(`${socket.client.id} connected`)
     
-    socket.on('lobby-join', (msg) => {
-        console.log(`${msg.name} ${msg.room}-lobbyjoin`)
-
-        msg = {
-            type: findItem(playerList, msg) ? 'JOIN' : 'NONE',
-            name: msg.name,
-            message: `${msg.name}님이 Lobby에 입장하였습니다.`,
-            room: msg.room,
-            id: socket.client.id,
+    socket.on('name-check', async (name) => {
+        try {
+            const [result] = await mySql.query('SELECT * FROM player_list WHERE name = ?', name)
+            if(result.length) name = false
+            
+            socket.emit('name-check', name)
+        } catch (err) {
+            console.log(err)
         }
-
-        socket.join('lobby');
-        io.to('lobby').emit('player-join', msg)
-        io.to('lobby').emit('room-list', roomList)
     })
 
-    socket.on('room-join', (msg) => {
-        console.log(`${msg.name} ${msg.room}-roomjoin`)
+    socket.on('lobby-join', async (data) => {
+        console.log(`${data.name} ${data.room}-lobbyjoin`)
 
-        msg = {
-            type: 'ROOM-JOIN',
-            name: msg.name,
-            message: `${msg.name}님이 Room ` + (Number(msg.room) + 1)
-            + `에 입장하였습니다.`,
-            room: msg.room,
-            id: socket.client.id,
+        try {
+            var sql = `INSERT INTO player_list (id, socket_id)
+                SELECT (SELECT IFNULL(MAX(id) + 1, 0) FROM player_list $), ?
+                FROM DUAL
+                WHERE NOT EXISTS (SELECT * FROM player_list WHERE socket_id = ?)`;
+            var param = [ socket.client.id, socket.client.id ]
+            const [connection] = await mySql.query(sql, param)
+        } catch (err) {
+            console.log(err)
         }
 
-        if(findItem(playerList, {...msg, id: socket.client.id})) {
-            console.log('Msgroom', msg.room)
-            playerList.push({name: msg.name, room: msg.room, id: socket.client.id, state: 'off'})
-
-            if(roomList[msg.room]) {
-                roomList[msg.room].player = roomList[msg.room].player < 8 ? countItem(playerList, msg.room) : 8;
-            }
+        try {
+            var sql = `UPDATE player_list SET name = ?, room = ?, state = ?  WHERE socket_id = ?`
+            var param = [ data.name, data.room, "on", socket.client.id ]
+            const [result] = await mySql.query(sql, param)
 
             socket.join('lobby');
+            if(result.affectedRows) {
+                msg = {
+                    type: 'JOIN',
+                    name: data.name,
+                    message: `${data.name}님이 Lobby에 입장하였습니다.`,
+                    room: data.room,
+                    id: socket.client.id,
+                }
+                io.to('lobby').emit('chat-upload', msg)
+            }
+
+            const [list] = await mySql.query(`SELECT * FROM player_list WHERE NOT NAME = ''`)
+            playerList = [...list]
+
             io.to('lobby').emit('player-list', playerList)
             io.to('lobby').emit('room-list', roomList)
-            socket.join(msg.room);
-            io.to(msg.room).emit('chat-upload', msg)
-            io.to(msg.room).emit('player-list', playerList)
-            io.to(msg.room).emit('room-list', roomList)
+        } catch (err) {
+            console.log(err)
+        }
+
+        
+        
+        
+    })
+
+    socket.on('room-join', async (data) => {
+        console.log(`${data.name} ${data.room}-roomjoin`)
+
+        try {
+            var sql = `UPDATE player_list SET name = ?, room = ?, state = ?  WHERE socket_id = ?`
+            var param = [ data.name, data.room, "off", socket.client.id ]
+            const [result] = await mySql.query(sql, param)
+
+            console.log(result.insertId)
+            if(result.affectedRows) {
+                msg = {
+                    type: 'ROOM-JOIN',
+                    name: data.name,
+                    message: `${data.name}님이 Room ` + (Number(data.room) + 1)
+                    + `에 입장하였습니다.`,
+                    room: data.room,
+                    id: socket.client.id,
+                }
+
+                const [list] = await mySql.query(`SELECT * FROM player_list WHERE NOT NAME = ''`)
+                playerList = [...list]
+
+                sql = `UPDATE room_list
+                SET player = (SELECT * FROM(SELECT player FROM room_list a WHERE id = ${data.room}) AS b)+1, player_${roomList[data.room] ? roomList[data.room].player : 0} = '${data.name}'
+                WHERE id = 0;`  
+                const [room] = await mySql.query(sql)
+
+                sql = `SELECT * FROM room_list WHERE NOT state IS NULL;`
+                const [_roomlist] = await mySql.query(sql)
+                roomList = [..._roomlist]
+
+                socket.join('lobby');
+                io.to('lobby').emit('player-list', playerList)
+                io.to('lobby').emit('room-list', roomList)
+                socket.join(data.room);
+                io.to(data.room).emit('chat-upload', msg)
+                io.to(data.room).emit('player-list', playerList)
+                io.to(data.room).emit('room-list', roomList)
+            }
+        } catch (err) {
+            console.log(err)
         }
     })
 
@@ -125,50 +179,34 @@ io.on('connection', (socket) => {
         io.to(msg.room).emit('chat-upload', msg)
     })
 
-    socket.on('player-list', async (data) => {
-        if(findItem(playerList, {...data, id: socket.client.id})) {
-            playerList.push({name: data.name, room: data.room, id: socket.client.id, state: 'on'})    
-        }
-
-        // try {
-        //     const [result] = await mySql.query('SELECT * FROM `player_list` WHERE `socket_id` = ?', socket.client.id)
-        //     if(result == "") {
-        //         var sql = `INSERT INTO user(name, email, userId, password, passwordCheck)VALUES(?, ?, ?, ?, ?)`;
-        //         var param = [
-        //             user.name, user.email, user.userId, user.password, user.passwordCheck
-        //         ]
-        //         try {
-        //             response.success = true
-        //             const [result] = await mySql.query(sql, param)
-        //         } catch (err) {
-        //             response.success = false
-        //             response.error = err
-        //         }
-        //     }
-        // } catch (err) {
-        //     console.log(err)
-        // }
-
-        socket.join(data.room);
-        io.to(data.room).emit('player-list', playerList)
-    })
-
-    socket.on('room-add', () => {
+    socket.on('room-add', async () => {
         console.log('room-add')
 
-        var roomId = roomList.reduce((arr, cur, idx) => {
-            if(cur.id !== idx) return arr < 0 ? idx : arr
-            return arr
-        }, -1)
-        if(roomId < 0) roomId = roomList.length 
-        console.log('roomId',roomId)
-        roomList.splice(roomId,0,{id: roomId, player: 0, state: 'on'})
-        
+        try {
+            var sql = `UPDATE room_list SET state = 'on' WHERE state IS NULL LIMIT 1`
+            const [result] = await mySql.query(sql)
+
+            if(!result.affectedRows) {
+                sql = `INSERT INTO room_list (id, player, state )
+                    VALUES ( (SELECT IFNULL(MAX(id) + 1, 0) FROM room_list $), 0, 'on' )`
+                const [insert] = await mySql.query(sql)
+            }
+        } catch (err) {
+            console.log(err)
+        }
+
+        try {
+            const [list] = await mySql.query(`SELECT * FROM room_list WHERE NOT state IS NULL`)
+            roomList = [...list]
+        } catch {
+            console.log(err)
+        }
+
         socket.join('lobby');
         io.to('lobby').emit('room-list', roomList)
     })
 
-    socket.on('lobby-leave', (msg) => {
+    socket.on('lobby-leave', async (msg) => {
         console.log(`${msg.name} ${msg.room}-leave`)
 
         msg = {
@@ -179,41 +217,62 @@ io.on('connection', (socket) => {
             id: socket.client.id,
         }
 
-        socket.join(msg.room);
-        io.to(msg.room).emit('chat-upload', msg)
-
-        if(!findItem(playerList, msg, 'sub')) {
-            io.to(msg.room).emit('player-list', playerList)
-        }
-    })
-
-    socket.on('room-leave', (msg) => {
-        console.log(`${msg.name} ${msg.room}-leave`)
-
-        // msg = {
-        //     type: 'ROOM-LEAVE',
-        //     name: msg.name,
-        //     message: `${msg.name}님이 퇴장하였습니다.`,
-        //     room: msg.room,
-        //     id: socket.client.id,
-        // }
-
-        findItem(playerList, msg, 'on')
-        if(roomList[msg.room]) {
-            var roomId = roomList.reduce((arr, cur, idx) => {
-                if(cur.id === msg.room) return idx
-                return arr
-            }, msg.room)
-
-            roomList[roomId].player = roomList[roomId].player > 1 ? roomList[roomId].player - 1 : roomList.splice(roomId,1);
+        try {
+            const [result] = await mySql.query(`DELETE FROM player_list WHERE socket_id = ?`, socket.client.id)
+            if(result.affectedRows) {
+                const [list] = await mySql.query(`SELECT * FROM player_list`)
+                playerList = [...list]
+            }
+        } catch (err) {
+            console.log(err)
         }
 
-        socket.join(msg.room);
+        socket.join('lobby');
         io.to('lobby').emit('player-list', playerList)
-        // io.to(msg.room).emit('chat-upload', msg)
+        io.to('lobby').emit('chat-upload', msg)
     })
 
-    socket.on('disconnect', () => {
+    socket.on('room-leave', async (data) => {
+        console.log(`${data.name} ${data.room}-leave`)
+
+        try {
+            var sql = `UPDATE player_list SET name = ?, room = ?, state = ?  WHERE socket_id = ?`
+            var param = [ data.name, data.room, "on", socket.client.id ]
+            const [result] = await mySql.query(sql, param)
+
+            console.log(result.insertId)
+            if(result.affectedRows) {
+                msg = {
+                    type: 'ROOM-LEAVE',
+                    name: msg.name,
+                    message: `${msg.name}님이 퇴장하였습니다.`,
+                    room: msg.room,
+                    id: socket.client.id,
+                }
+
+                const [list] = await mySql.query(`SELECT * FROM player_list WHERE NOT NAME = ''`)
+                playerList = [...list]
+
+                if(roomList[data.room]) {
+                    var roomId = roomList.reduce((arr, cur, idx) => {
+                        if(cur.id === data.room) return idx
+                        return arr
+                    }, data.room)
+        
+                    roomList[roomId].player = roomList[roomId].player > 1 ? roomList[roomId].player - 1 : roomList.splice(roomId,1);
+                }
+
+                socket.join(data.room);
+                io.to(data.room).emit('chat-upload', data)
+                socket.join('lobby');
+                io.to('lobby').emit('player-list', playerList)
+            }
+        } catch (err) {
+            console.log(err)
+        }
+    })
+
+    socket.on('disconnect', async () => {
         var msg = {
             type: '',
             name: '',
@@ -221,21 +280,27 @@ io.on('connection', (socket) => {
             room: '',
             id: '',
         };
-        playerList.find((list, idx) => {
-            if(list.id === socket.client.id) {
+
+        try {
+            const [find] = await mySql.query(`SELECT * FROM player_list WHERE socket_id = ?`, socket.client.id)
+            if(find.affectedRows) {
                 msg = {
                     type: 'LEAVE', 
-                    name: list.name,
-                    message: `${list.name}님이 퇴장하였습니다.`,
-                    room: list.room,
+                    name: find[0].name,
+                    message: `${find[0]}님이 퇴장하였습니다.`,
+                    room: find[0].room,
                     id: socket.client.id,
                 }
-                return true
             }
-        })
 
-
-        findItem(playerList, {id : socket.client.id}, 'sub')
+            const [result] = await mySql.query(`DELETE FROM player_list WHERE socket_id = ?`, socket.client.id)
+            if(result.affectedRows) {
+                const [list] = await mySql.query(`SELECT * FROM player_list`)
+                playerList = [...list]
+            }
+        } catch (err) {
+            console.log(err)
+        }
 
         socket.join('lobby');
         io.to('lobby').emit('player-list', playerList)

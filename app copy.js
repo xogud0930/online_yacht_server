@@ -100,6 +100,8 @@ io.on('connection', (socket) => {
             id: socket.client.id,
         }
 
+        
+
         if(findItem(playerList, {...msg, id: socket.client.id})) {
             console.log('Msgroom', msg.room)
             playerList.push({name: msg.name, room: msg.room, id: socket.client.id, state: 'off'})
