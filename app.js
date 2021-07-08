@@ -21,10 +21,14 @@ try {
     throw err
 }
 
-app.use('/public', express.static('./public'))
+// app.use('/public', express.static('./public'))
+// app.get('/', (req, res) => {
+//     res.redirect(302, '/public')
+// })
+
 app.get('/', (req, res) => {
-    res.redirect(302, '/public')
-})
+    res.send('main');
+});
 
 const socketio = require('socket.io')
 const io = socketio(server, {
