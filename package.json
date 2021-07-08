@@ -23,7 +23,9 @@
     "express": "^4.17.1",
     "express-session": "^1.17.1",
     "mysql2": "^2.2.5",
-    "socket.io": "^4.1.2"
+    "reduxt": "^0.0.5",
+    "socket.io": "^4.1.2",
+    "nodemon": "^2.0.7"
   },
   "engines": {
     "node": "15.13.0",
