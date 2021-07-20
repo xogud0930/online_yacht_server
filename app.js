@@ -118,8 +118,20 @@ io.on('connection', (socket) => {
                 io.to('lobby').emit('chat-upload', msg)
             }
 
-            const [list] = await mySql.query(`SELECT * FROM player_list WHERE NOT NAME = ''`)
-            playerList = [...list]
+            try {
+                const [list] = await mySql.query(`SELECT * FROM player_list WHERE NOT NAME = ''`)
+                playerList = [...list]
+            } catch {
+                console.log(err)
+            }
+
+
+            try {
+                const [list] = await mySql.query(`SELECT * FROM room_list WHERE NOT state IS NULL`)
+                roomList = [...list]
+            } catch {
+                console.log(err)
+            }
 
             io.to('lobby').emit('player-list', playerList)
             io.to('lobby').emit('room-list', roomList)
